@@ -1,0 +1,87 @@
+// send calldata -> function dispatch -> function 
+
+
+// 60008060093d393df3 -> Contract Creation Bytecode
+
+/* Interfaces */
+#define function updateHorseNumber(uint256) nonpayable returns()
+#define function readNumberOfHorses() view returns(uint256)
+
+#define constant NUMBER_OF_HORSES_STORAGE_SLOT = FREE_STORAGE_POINTER()
+
+// 0xcdfead2e0000000000000000000000000000000000000000000000000000000000000001 -> calldata we get when we `updateHorseNumber` with 1
+// 0xe026c017 -> calldata we get when we call `readNumberOfHorses`
+// Let's find the function selector -> route it to the code that updates horses
+#define macro MAIN() = takes(0) returns(0) {
+    0x00                        // [0]
+    //  0x02                    // TOP [2, 0]  BOTTOM
+    calldataload                // [calldata]
+
+    // How do we cut down the calldata -> func selector?
+
+    // SHR opcode
+    // 0x0102 (bytes)
+    // 1 bytes = 8 bits
+    // 0b100000010 >> 2  || 0b100000010 >> 4
+    // 0b01000000 || 0b010000
+    // 0x40 || 0x10
+
+    // 64/2 = 32 bytes -> right
+    // We need to right shift 28 bytes, 224 bits (0xe0)
+    0xe0                        // [0xe0, calldata (32)]
+    shr                         // [Function selector]
+    // [function_selector]
+
+    // Jump -> function data associated with the selector
+    // If f_selector == updateHorseNumber -> jump to that code
+    // If f_selector == readHorseNumber -> jump to that code
+    // 0xcdfead2e == update
+    // 0xe026c017 == read
+
+    // updateHorseNumber selector
+    dup1                                            // [function_selector,function_selector]
+    __FUNC_SIG(updateHorseNumber)                   // [0xcdfead2e, function_selector,function_selector]
+    eq                                              // [true_if_func_selector_matches,function_selector]
+    // jump to updateHorseNumber code if true
+    updateJump                                      // [updateHorseNumberProgramCounter, true/false,function_selector]
+    jumpi                                           // [function_selector]
+    
+    // readNumberOfHorses, 0xe026c017
+    __FUNC_SIG(readNumberOfHorses)                                      // [0xe026c017,function_selector]
+    eq                                              // [true_if_func_selector_matches]
+    readJump                                        // [readJump, true_if_func_selector_matches]
+    jumpi                                           // []
+
+    0x00 0x00 revert                                // []
+
+    updateJump:
+        SET_NUMBER_OF_HORSES()
+
+    readJump:
+        GET_NUMBER_OF_HORSES()
+}
+
+// 0xcdfead2e 0000000000000000000000000000000000000000000000000000000000000007
+#define macro SET_NUMBER_OF_HORSES() = takes(0) returns(0) {
+    // 1. Get the value to store from calldata
+    0x04                                            // [4]
+    calldataload                                    // [value]
+    // 2. Give it a storage slot
+    [NUMBER_OF_HORSES_STORAGE_SLOT]                 // [storage_slot, value]
+    // 3. sstore opcode
+    sstore
+    stop
+}
+
+// 0xe026c017
+#define macro GET_NUMBER_OF_HORSES() = takes(0) returns(0) {
+    // 1. Get the storage slot
+    // 2. Load the value of that slot into memory
+    // 3. Return it
+    [NUMBER_OF_HORSES_STORAGE_SLOT]                 // [key]
+    sload                                           // [value]
+    0x00                                            // [0, value]
+    mstore                                          // []       // Memory: [value]
+    // 0x20 == 32 bytes
+    0x20 0x00 return                                // []       // Memory: []
+}
